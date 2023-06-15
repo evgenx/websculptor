@@ -1,0 +1,77 @@
+version: "3.9"
+name: websculptor
+services:
+
+  #webserver
+  nginx:
+    container_name: websculptor-nginx
+    build:
+      context: ./docker/nginx
+      dockerfile: ./Dockerfile
+    ports:
+      - "${INTERFACE}:80:80"
+    depends_on:
+      - node-back
+      - node-front
+
+  #back
+  node-back:
+    image: node:18.16.0-alpine
+    container_name: websculptor-back
+    volumes:
+      - ./back:/var/www/back:rw
+    command: sh -c "cd /var/www/back && npm ci && npm run start:dev"
+
+  #front
+  node-front:
+    image: node:18.16.0-alpine
+    container_name: websculptor-front
+    environment:
+      - FRONTEND_PORT=${FRONTEND_PORT}
+    command: sh -c "cd /var/www/front && npm ci && npm run dev"
+    volumes:
+      - ./front:/var/www/front:rw
+
+  #database
+  postgres:
+    image: postgres:15.2-alpine
+    container_name: websculptor-db
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB}"
+      POSTGRES_USER: "${POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+    ports:
+      - "${INTERFACE}:${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_db:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD", "pg_isready", "-q", "-d", "${POSTGRES_DB}", "-U", "${POSTGRES_USER}" ]
+      retries: 3
+      timeout: 5s
+
+  #cache
+  redis:
+    image: redis:7.0-alpine
+    container_name: websculptor-redis
+    ports:
+      - "${INTERFACE}:${REDIS_PORT}:6379"
+    volumes:
+      - redis_db:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      retries: 3
+      timeout: 5s
+
+  #queue
+  rabbit:
+    image: rabbitmq:3.11-management
+    container_name: websculptor-rabbit
+    ports:
+      - "${INTERFACE}:${RABBIT_SERVICE_PORT}:5672"
+      - "${INTERFACE}:${RABBIT_MANAGER_PORT}:15672"
+
+volumes:
+  postgres_db:
+    driver: local
+  redis_db:
+    driver: local

@@ -1,0 +1,47 @@
+run-name: Deploy to prod by @${{ github.actor }}
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.16.0]
+        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install SSH key
+      uses: shimataro/ssh-key-action@v2
+      with:
+        key: ${{ secrets.SSH_KEY }}
+        known_hosts: ${{ secrets.KNOWN_HOSTS }}
+    - name: Make fake package-lock for install node
+      run: touch package-lock.json
+    - name: Install nodejs ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    - name: Build back
+      run: cd ./back && npm ci && npm run build
+    - name: Copy back to remote
+      run: |
+        rsync -a --delete ./back ${{ secrets.SSH_USER }}@${{ secrets.HOST }}:/var/www/${{ secrets.HOST }}
+    - name: Build front
+      run: cd ./front && npm ci && npm run build
+    - name: Copy front to remote
+      run: |
+        cd ./front
+        rsync -a --delete ./.output ${{ secrets.SSH_USER }}@${{ secrets.HOST }}:/var/www/${{ secrets.HOST }}/front
+    - name: Reload PM2
+      run: |
+        rsync ./ecosystem.config.js ${{ secrets.SSH_USER }}@${{ secrets.HOST }}:/var/www/${{ secrets.HOST }}/
+        ssh ${{ secrets.SSH_USER }}@${{ secrets.HOST }} "cd /var/www/${{ secrets.HOST }} && pm2 delete all && pm2 start ecosystem.config.js"
